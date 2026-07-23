@@ -28,16 +28,103 @@ st.set_page_config(
 )
 
 # ============================================================
-# DETECTAR CTE — arquivos CT-e têm tag <cteProc> ou <CTe>
+# MAPA DE CATEGORIAS CUSTOMIZADO (override total)
+# ============================================================
+
+def _expandir(cfops_raw: list) -> set:
+    """Expande ranges e inteiros para um set de ints."""
+    resultado = set()
+    for item in cfops_raw:
+        if isinstance(item, tuple):
+            resultado.update(range(item[0], item[1] + 1))
+        else:
+            resultado.add(item)
+    return resultado
+
+CATEGORIAS_CUSTOM = {
+    "COMPRAS_MP_INDUSTRIALIZACAO": _expandir([
+        1101,1111,1116,1117,1118,1120,1122,1124,1125,1126,
+        (1251,1258), 1401,
+        2101,2111,2116,2117,2118,2120,2122,2124,2125,2126,
+        (2251,2258), 2401,
+    ]),
+    "COMPRAS_REVENDA": _expandir([
+        1102,1113,1121,1123,1403,
+        2102,2113,2121,2123,2403,
+    ]),
+    "DEVOLUCOES_MP_INDUSTRIALIZACAO": _expandir([
+        1201,1203,1208,(1302,1306),
+        2201,2203,2208,(2302,2306),
+    ]),
+    "DEVOLUCOES_REVENDA": _expandir([
+        1202,1204,1207,1209,
+        2202,2204,2207,2209,
+    ]),
+    "TRANSFERENCIA_MP_INDUSTRIALIZACAO": _expandir([
+        1151,1155,1408,
+        2151,2155,2408,
+    ]),
+    "TRANSFERENCIA_REVENDA": _expandir([
+        1152,1156,1409,
+        2152,2156,2409,
+    ]),
+    "TRANSFERENCIA_USO_CONSUMO": _expandir([
+        1157,
+        2157,
+    ]),
+    "TRANSFERENCIA_OUTRAS": _expandir([
+        1153,1154,1158,1159,
+        2153,2154,2158,2159,
+    ]),
+    "SERVICOS": _expandir([
+        1301,
+        2301,
+    ]),
+    "CTE_FRETES_TRANSPORTE": _expandir([
+        (1351,1356),(1360,1363),1932,
+        (2351,2356),(2360,2363),2932,
+    ]),
+    "ATIVO_IMOBILIZADO": _expandir([
+        1406,(1551,1555),
+        2406,(2551,2555),
+    ]),
+    "USO_CONSUMO": _expandir([
+        1407,1556,1557,
+        2407,2556,2557,
+    ]),
+    "OUTROS": _expandir([
+        (1601,1605),(1651,1656),(1900,1949),
+        (2601,2605),(2651,2656),(2900,2949),
+    ]),
+}
+
+# Índice reverso: cfop_int → categoria
+_CFOP_PARA_CAT: dict[int, str] = {}
+for _cat, _cfops in CATEGORIAS_CUSTOM.items():
+    for _c in _cfops:
+        _CFOP_PARA_CAT[_c] = _cat
+
+
+def cfop_para_categoria_custom(cfop_str: str) -> str:
+    """Retorna a categoria do CFOP usando o mapa customizado."""
+    try:
+        cfop_int = int(str(cfop_str).strip())
+    except (ValueError, TypeError):
+        return "OUTROS"
+    return _CFOP_PARA_CAT.get(cfop_int, "OUTROS")
+
+
+# ============================================================
+# DETECTAR CT-e
 # ============================================================
 
 def is_cte(xml_bytes: bytes) -> bool:
-    """Retorna True se o XML for um CT-e."""
     try:
         conteudo = xml_bytes.decode("utf-8", errors="ignore")
     except Exception:
         conteudo = ""
     return "<cteProc" in conteudo or "<CTe " in conteudo or "<CTe>" in conteudo
+
 
 # ============================================================
 # CSS TEMA ESCURO TR / DOMÍNIO
@@ -207,6 +294,39 @@ for i, (col, nome) in enumerate(zip(cols_eta, etapas), 1):
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ============================================================
+# HELPERS
+# ============================================================
+
+def aplicar_categoria_custom(df: pd.DataFrame) -> pd.DataFrame:
+    """Aplica cfop_para_categoria_custom na coluna CATEGORIA do df."""
+    if "CFOP" in df.columns:
+        df = df.copy()
+        df["CATEGORIA"] = df["CFOP"].apply(cfop_para_categoria_custom)
+    return df
+
+
+def override_listas(resultado: dict) -> dict:
+    """Reaplica categorias customizadas nas listas encontrados/nao_encontrados."""
+    for lista_key in ["encontrados", "nao_encontrados"]:
+        nova = []
+        for item in resultado.get(lista_key, []):
+            cfop = str(item.get("CFOP", "")).strip()
+            nova.append({**item, "CATEGORIA": cfop_para_categoria_custom(cfop)})
+        resultado[lista_key] = nova
+    return resultado
+
+
+def df_tab(df_, altura=380):
+    if isinstance(df_, list):
+        df_ = pd.DataFrame(df_)
+    if df_.empty:
+        st.markdown('<div class="status-box status-info">Nenhum registro.</div>',
+                    unsafe_allow_html=True)
+    else:
+        st.dataframe(df_, use_container_width=True, height=altura)
+
+
+# ============================================================
 # ETAPA 1 — UPLOAD
 # ============================================================
 
@@ -242,7 +362,9 @@ if st.session_state.etapa == 1:
                 planilha_up.seek(0)
                 df_prev = pd.read_excel(planilha_up, sheet_name="Planilha1", dtype=str)
                 df_prev.columns = ["CFOP", "CHAVE_NFE"]
-                df_prev["CATEGORIA"] = df_prev["CFOP"].apply(cfop_para_categoria)
+                df_prev["CFOP"]      = df_prev["CFOP"].str.strip()
+                df_prev["CHAVE_NFE"] = df_prev["CHAVE_NFE"].str.strip()
+                df_prev["CATEGORIA"] = df_prev["CFOP"].apply(cfop_para_categoria_custom)
 
                 total   = len(df_prev)
                 com_ch  = df_prev["CHAVE_NFE"].notna().sum()
@@ -296,10 +418,10 @@ if st.session_state.etapa == 1:
             df_tmp = pd.read_excel(
                 io.BytesIO(st.session_state.planilha_bytes),
                 sheet_name="Planilha1", dtype=str)
-            df_tmp.columns = ["CFOP", "CHAVE_NFE"]
+            df_tmp.columns      = ["CFOP", "CHAVE_NFE"]
             df_tmp["CFOP"]      = df_tmp["CFOP"].str.strip()
             df_tmp["CHAVE_NFE"] = df_tmp["CHAVE_NFE"].str.strip()
-            df_tmp["CATEGORIA"] = df_tmp["CFOP"].apply(cfop_para_categoria)
+            df_tmp["CATEGORIA"] = df_tmp["CFOP"].apply(cfop_para_categoria_custom)
             df_com = df_tmp[df_tmp["CHAVE_NFE"].notna() &
                             (df_tmp["CHAVE_NFE"] != "nan")].copy()
 
@@ -307,10 +429,7 @@ if st.session_state.etapa == 1:
             st.session_state.dict_conflito = dict_conf
             st.session_state.decisoes      = {}
 
-            if dict_conf:
-                st.session_state.etapa = 2
-            else:
-                st.session_state.etapa = 3
+            st.session_state.etapa = 2 if dict_conf else 3
             st.rerun()
 
 # ============================================================
@@ -356,13 +475,11 @@ elif st.session_state.etapa == 2:
 
         with col_sel:
             st.markdown("**Selecione o destino:**")
-
             todas = st.checkbox(
                 "📁 Copiar para TODAS as categorias",
                 value=True,
                 key=f"todas_{chave}"
             )
-
             selecionadas = []
             if todas:
                 selecionadas = cats_disponiveis
@@ -445,28 +562,33 @@ elif st.session_state.etapa == 3:
                 decisoes_usuario    = st.session_state.decisoes
             )
 
-            # ── Separar CT-e dos XMLs classificados ────────
+            # ── Override categorias em todos os DataFrames ──
+            for df_key in ["df_planilha", "df_com_chave", "df_sem_chave",
+                           "df_auto", "df_conflito"]:
+                if df_key in resultado and resultado[df_key] is not None:
+                    resultado[df_key] = aplicar_categoria_custom(resultado[df_key])
+
+            resultado = override_listas(resultado)
+
+            # ── Separar CT-e ────────────────────────────────
             prog.progress(60)
             info.markdown('<div class="status-box status-info">⏳ Separando CT-e...</div>',
                           unsafe_allow_html=True)
 
-            ctes_encontrados   = []
-            ctes_nao_encontrados = []
-
+            ctes_encontrados = []
             pasta_cte = pasta_out / "CTE"
             pasta_cte.mkdir(exist_ok=True)
 
-            # Varre todos os XMLs da pasta de entrada e separa CT-e
-            todos_xmls = list(pasta_xmls.rglob("*.xml"))
-            for xml_file in todos_xmls:
+            for xml_file in pasta_xmls.rglob("*.xml"):
                 conteudo = xml_file.read_bytes()
                 if is_cte(conteudo):
-                    destino = pasta_cte / xml_file.name
-                    destino.write_bytes(conteudo)
-                    ctes_encontrados.append({"ARQUIVO": xml_file.name, "CATEGORIA": "CTE"})
+                    (pasta_cte / xml_file.name).write_bytes(conteudo)
+                    ctes_encontrados.append({
+                        "ARQUIVO":   xml_file.name,
+                        "CATEGORIA": "CTE"
+                    })
 
-            resultado["ctes_encontrados"]    = ctes_encontrados
-            resultado["ctes_nao_encontrados"] = ctes_nao_encontrados
+            resultado["ctes_encontrados"] = ctes_encontrados
 
             # ── ZIP MASTER: um ZIP por categoria + CTE ──────
             prog.progress(75)
@@ -476,7 +598,6 @@ elif st.session_state.etapa == 3:
             zip_master_buf = io.BytesIO()
             with zipfile.ZipFile(zip_master_buf, "w", zipfile.ZIP_DEFLATED) as zf_master:
 
-                # ZIPs por categoria NF-e
                 if "zips_por_categoria" in resultado:
                     for cat, zip_cat_path in resultado["zips_por_categoria"].items():
                         zf_master.write(zip_cat_path, f"{cat}.zip")
@@ -484,7 +605,6 @@ elif st.session_state.etapa == 3:
                     with open(resultado["zip"], "rb") as f_zip:
                         zf_master.writestr("Classificados.zip", f_zip.read())
 
-                # ZIP da categoria CTE
                 if ctes_encontrados:
                     cte_buf = io.BytesIO()
                     with zipfile.ZipFile(cte_buf, "w", zipfile.ZIP_DEFLATED) as zf_cte:
@@ -554,33 +674,25 @@ elif st.session_state.etapa == 3:
         "🔍 Sem Chave"
     ])
 
-    def df_tab(df_, altura=380):
-        if df_.empty:
-            st.markdown('<div class="status-box status-info">Nenhum registro.</div>',
-                        unsafe_allow_html=True)
-        else:
-            st.dataframe(df_, use_container_width=True, height=altura)
-
     with tabs[0]:
         rows = []
-        for cat, cfops in CATEGORIAS.items():
-            s = set(cfops)
+        for cat, cfops_set in CATEGORIAS_CUSTOM.items():
             rows.append({
                 "Categoria":       cat,
-                "CFOPs":           ", ".join(str(c) for c in cfops),
-                "Total":           len(df_plan[df_plan["CFOP"].apply(
+                "Qtd CFOPs":       len(cfops_set),
+                "Total Planilha":  int(df_plan["CFOP"].apply(
                                        lambda x: int(x) if str(x).isdigit() else 0
-                                   ).isin(s)]),
-                "Com Chave":       len(df_com[df_com["CATEGORIA"] == cat]),
+                                   ).isin(cfops_set).sum()),
+                "Com Chave":       int((df_com["CATEGORIA"] == cat).sum()),
                 "Encontrados":     sum(1 for r in enc if r["CATEGORIA"] == cat),
                 "Não Encontrados": sum(1 for r in nao if r["CATEGORIA"] == cat),
-                "Sem Chave":       len(df_sem[df_sem["CATEGORIA"] == cat]),
+                "Sem Chave":       int((df_sem["CATEGORIA"] == cat).sum()),
             })
-        # Linha CTE no resumo
+        # Linha CTE
         rows.append({
             "Categoria":       "CTE",
-            "CFOPs":           "—",
-            "Total":           len(ctes),
+            "Qtd CFOPs":       "—",
+            "Total Planilha":  len(ctes),
             "Com Chave":       len(ctes),
             "Encontrados":     len(ctes),
             "Não Encontrados": 0,
@@ -596,7 +708,7 @@ elif st.session_state.etapa == 3:
         else:
             st.markdown(f'<div class="status-box status-purple">'
                         f'🚛 <strong>{len(ctes)}</strong> CT-e(s) identificados e '
-                        f'separados na pasta <code>CTE</code> dentro do ZIP.</div>',
+                        f'separados em <code>CTE.zip</code> dentro do arquivo final.</div>',
                         unsafe_allow_html=True)
             df_tab(pd.DataFrame(ctes))
 
@@ -610,7 +722,7 @@ elif st.session_state.etapa == 3:
         else:
             st.markdown(f'<div class="status-box status-warning">'
                         f'⚠️ {len(dup_auto["CHAVE_NFE"].unique())} chave(s) com '
-                        f'duplicata no mesmo grupo.</div>',
+                        f'duplicata no mesmo grupo (copiadas 1x automaticamente).</div>',
                         unsafe_allow_html=True)
             df_tab(dup_auto[["CHAVE_NFE", "CFOP", "CATEGORIA"]])
 
