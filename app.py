@@ -28,6 +28,18 @@ st.set_page_config(
 )
 
 # ============================================================
+# DETECTAR CTE — arquivos CT-e têm tag <cteProc> ou <CTe>
+# ============================================================
+
+def is_cte(xml_bytes: bytes) -> bool:
+    """Retorna True se o XML for um CT-e."""
+    try:
+        conteudo = xml_bytes.decode("utf-8", errors="ignore")
+    except Exception:
+        conteudo = ""
+    return "<cteProc" in conteudo or "<CTe " in conteudo or "<CTe>" in conteudo
+
+# ============================================================
 # CSS TEMA ESCURO TR / DOMÍNIO
 # ============================================================
 
@@ -70,6 +82,7 @@ html, body, [data-testid="stAppViewContainer"] {
 .metric-card.yellow .value { color:#D29922; }
 .metric-card.blue   .value { color:#58A6FF; }
 .metric-card.orange .value { color:#E8580A; }
+.metric-card.purple .value { color:#BC8CFF; }
 
 .section-title {
     color:#E6EDF3; font-size:14px; font-weight:600;
@@ -95,6 +108,7 @@ html, body, [data-testid="stAppViewContainer"] {
 .status-warning { background:rgba(210,153,34,.1); border:1px solid rgba(210,153,34,.3); color:#D29922; }
 .status-error   { background:rgba(248,81,73,.1);  border:1px solid rgba(248,81,73,.3);  color:#F85149; }
 .status-info    { background:rgba(88,166,255,.1); border:1px solid rgba(88,166,255,.3); color:#58A6FF; }
+.status-purple  { background:rgba(188,140,255,.1);border:1px solid rgba(188,140,255,.3);color:#BC8CFF; }
 
 .stButton > button {
     background:linear-gradient(135deg,#E8580A,#C44A08) !important;
@@ -159,12 +173,12 @@ st.markdown("""
     <div>
       <div style="display:flex;align-items:center;gap:10px;">
         <span style="font-size:22px;font-weight:700;color:#E6EDF3;">
-          Classificador de XML NF-e
+          Classificador de XML NF-e / CT-e
         </span>
         <span class="tr-badge">FISCAL</span>
       </div>
       <p style="color:#8B949E;font-size:13px;margin:4px 0 0 0;">
-        Classifique XMLs por categoria fiscal · Gerencie duplicatas · Exporte relatório
+        Classifique XMLs por categoria fiscal · CT-e separado · Gerencie duplicatas · Exporte relatório
       </p>
     </div>
   </div>
@@ -206,7 +220,7 @@ if st.session_state.etapa == 1:
         planilha_up = st.file_uploader(
             "Classificação.xlsx", type=["xlsx", "xls"], key="up_plan")
 
-        st.markdown('<div class="section-title">📁 Arquivos XML</div>',
+        st.markdown('<div class="section-title">📁 Arquivos XML / CT-e</div>',
                     unsafe_allow_html=True)
         tipo_xml = st.radio("Formato", ["📦 ZIP", "📄 XMLs individuais"],
                             label_visibility="collapsed")
@@ -431,21 +445,52 @@ elif st.session_state.etapa == 3:
                 decisoes_usuario    = st.session_state.decisoes
             )
 
-            prog.progress(70)
-            info.markdown('<div class="status-box status-info">⏳ Gerando ZIPs por categoria...</div>',
+            # ── Separar CT-e dos XMLs classificados ────────
+            prog.progress(60)
+            info.markdown('<div class="status-box status-info">⏳ Separando CT-e...</div>',
                           unsafe_allow_html=True)
 
-            # ── ZIP MASTER: um ZIP por categoria dentro ─────
+            ctes_encontrados   = []
+            ctes_nao_encontrados = []
+
+            pasta_cte = pasta_out / "CTE"
+            pasta_cte.mkdir(exist_ok=True)
+
+            # Varre todos os XMLs da pasta de entrada e separa CT-e
+            todos_xmls = list(pasta_xmls.rglob("*.xml"))
+            for xml_file in todos_xmls:
+                conteudo = xml_file.read_bytes()
+                if is_cte(conteudo):
+                    destino = pasta_cte / xml_file.name
+                    destino.write_bytes(conteudo)
+                    ctes_encontrados.append({"ARQUIVO": xml_file.name, "CATEGORIA": "CTE"})
+
+            resultado["ctes_encontrados"]    = ctes_encontrados
+            resultado["ctes_nao_encontrados"] = ctes_nao_encontrados
+
+            # ── ZIP MASTER: um ZIP por categoria + CTE ──────
+            prog.progress(75)
+            info.markdown('<div class="status-box status-info">⏳ Gerando ZIPs...</div>',
+                          unsafe_allow_html=True)
+
             zip_master_buf = io.BytesIO()
             with zipfile.ZipFile(zip_master_buf, "w", zipfile.ZIP_DEFLATED) as zf_master:
+
+                # ZIPs por categoria NF-e
                 if "zips_por_categoria" in resultado:
-                    # classificar_xmls já gerou ZIPs por categoria
                     for cat, zip_cat_path in resultado["zips_por_categoria"].items():
                         zf_master.write(zip_cat_path, f"{cat}.zip")
                 else:
-                    # Fallback: empacota o ZIP único gerado
                     with open(resultado["zip"], "rb") as f_zip:
                         zf_master.writestr("Classificados.zip", f_zip.read())
+
+                # ZIP da categoria CTE
+                if ctes_encontrados:
+                    cte_buf = io.BytesIO()
+                    with zipfile.ZipFile(cte_buf, "w", zipfile.ZIP_DEFLATED) as zf_cte:
+                        for xml_file in pasta_cte.glob("*.xml"):
+                            zf_cte.write(xml_file, xml_file.name)
+                    zf_master.writestr("CTE.zip", cte_buf.getvalue())
 
             resultado["zip_bytes"] = zip_master_buf.getvalue()
 
@@ -476,17 +521,18 @@ elif st.session_state.etapa == 3:
     df_sem  = resultado["df_sem_chave"]
     enc     = resultado["encontrados"]
     nao     = resultado["nao_encontrados"]
-    n_conf  = len(resultado["dict_conflito"])
+    ctes    = resultado.get("ctes_encontrados", [])
 
     st.markdown('<div class="section-title">📊 Resultados</div>', unsafe_allow_html=True)
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     for col_, val, lbl, cls in [
         (c1, len(df_plan), "Total Registros",  ""),
         (c2, len(df_com),  "Com Chave",        "blue"),
-        (c3, len(enc),     "XMLs Encontrados", "green"),
+        (c3, len(enc),     "NF-e Encontradas", "green"),
         (c4, len(nao),     "Não Encontrados",  "red"),
         (c5, len(df_sem),  "Sem Chave (NaN)",  "yellow"),
+        (c6, len(ctes),    "CT-e Separados",   "purple"),
     ]:
         with col_:
             st.markdown(f"""
@@ -500,6 +546,7 @@ elif st.session_state.etapa == 3:
     # ── Tabs ────────────────────────────────────────────────
     tabs = st.tabs([
         "📊 Resumo por Categoria",
+        "🚛 CT-e Separados",
         "⚠️ Duplicatas Auto",
         "🔀 Conflitos Resolvidos",
         "✅ Encontrados",
@@ -529,9 +576,31 @@ elif st.session_state.etapa == 3:
                 "Não Encontrados": sum(1 for r in nao if r["CATEGORIA"] == cat),
                 "Sem Chave":       len(df_sem[df_sem["CATEGORIA"] == cat]),
             })
+        # Linha CTE no resumo
+        rows.append({
+            "Categoria":       "CTE",
+            "CFOPs":           "—",
+            "Total":           len(ctes),
+            "Com Chave":       len(ctes),
+            "Encontrados":     len(ctes),
+            "Não Encontrados": 0,
+            "Sem Chave":       0,
+        })
         df_tab(pd.DataFrame(rows))
 
     with tabs[1]:
+        if not ctes:
+            st.markdown('<div class="status-box status-info">'
+                        '🚛 Nenhum CT-e encontrado nos arquivos enviados.</div>',
+                        unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="status-box status-purple">'
+                        f'🚛 <strong>{len(ctes)}</strong> CT-e(s) identificados e '
+                        f'separados na pasta <code>CTE</code> dentro do ZIP.</div>',
+                        unsafe_allow_html=True)
+            df_tab(pd.DataFrame(ctes))
+
+    with tabs[2]:
         df_auto  = resultado["df_auto"]
         dup_auto = df_auto[df_auto.duplicated("CHAVE_NFE", keep=False)]
         if dup_auto.empty:
@@ -541,11 +610,11 @@ elif st.session_state.etapa == 3:
         else:
             st.markdown(f'<div class="status-box status-warning">'
                         f'⚠️ {len(dup_auto["CHAVE_NFE"].unique())} chave(s) com '
-                        f'duplicata no mesmo grupo (copiadas 1x automaticamente).</div>',
+                        f'duplicata no mesmo grupo.</div>',
                         unsafe_allow_html=True)
             df_tab(dup_auto[["CHAVE_NFE", "CFOP", "CATEGORIA"]])
 
-    with tabs[2]:
+    with tabs[3]:
         if not st.session_state.decisoes:
             st.markdown('<div class="status-box status-success">'
                         '✅ Nenhum conflito encontrado.</div>',
@@ -565,14 +634,14 @@ elif st.session_state.etapa == 3:
                     })
             df_tab(pd.DataFrame(rows_conf))
 
-    with tabs[3]:
+    with tabs[4]:
         if not enc:
             st.markdown('<div class="status-box status-warning">'
                         '⚠️ Nenhum XML encontrado.</div>', unsafe_allow_html=True)
         else:
             df_tab(pd.DataFrame(enc))
 
-    with tabs[4]:
+    with tabs[5]:
         if not nao:
             st.markdown('<div class="status-box status-success">'
                         '✅ Todos encontrados!</div>', unsafe_allow_html=True)
@@ -582,7 +651,7 @@ elif st.session_state.etapa == 3:
                         unsafe_allow_html=True)
             df_tab(pd.DataFrame(nao))
 
-    with tabs[5]:
+    with tabs[6]:
         resumo_sem = (df_sem.groupby(["CFOP", "CATEGORIA"])
                       .size().reset_index(name="QUANTIDADE")
                       .sort_values("QUANTIDADE", ascending=False))
@@ -591,7 +660,7 @@ elif st.session_state.etapa == 3:
                     unsafe_allow_html=True)
         df_tab(resumo_sem)
 
-    # ── Downloads ───────────────────────────────────────────
+    # ── Download único ──────────────────────────────────────
     st.markdown('<div class="section-title">⬇️ Downloads</div>', unsafe_allow_html=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -599,7 +668,7 @@ elif st.session_state.etapa == 3:
 
     with cd1:
         st.download_button(
-            "⬇️ Baixar XMLs Classificados",
+            "⬇️ Baixar XMLs Classificados (NF-e + CT-e)",
             data=resultado["zip_bytes"],
             file_name=f"Classificados_{ts}.zip",
             mime="application/zip",
@@ -627,5 +696,5 @@ elif st.session_state.etapa == 3:
 # ── Footer ──────────────────────────────────────────────────
 st.markdown("""
 <div class="footer">
-  Classificador XML NF-e · Streamlit · Tema Thomson Reuters / Domínio Sistemas
+  Classificador XML NF-e / CT-e · Streamlit · Tema Thomson Reuters / Domínio Sistemas
 </div>""", unsafe_allow_html=True)
