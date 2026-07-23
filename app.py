@@ -7,7 +7,7 @@ import streamlit as st
 import pandas as pd
 import zipfile
 import shutil
-import os
+import xml.etree.ElementTree as ET
 import io
 from pathlib import Path
 from datetime import datetime
@@ -28,7 +28,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# MAPA DE CATEGORIAS CUSTOMIZADO (override total)
+# MAPA DE CATEGORIAS CUSTOMIZADO
 # ============================================================
 
 def _expandir(cfops_raw: list) -> set:
@@ -112,71 +112,126 @@ def cfop_para_categoria_custom(cfop_str: str) -> str:
 
 
 # ============================================================
-# DETECTAR CT-e
+# LER CHAVE E TIPO DENTRO DO XML
 # ============================================================
 
-def is_cte(xml_bytes: bytes) -> bool:
+# Namespaces NF-e e CT-e
+_NS_NFE = "http://www.portalfiscal.inf.br/nfe"
+_NS_CTE = "http://www.portalfiscal.inf.br/cte"
+
+def extrair_chave_xml(xml_bytes: bytes) -> tuple[str | None, str]:
+    """
+    Lê o XML e retorna (chave_44_digitos, tipo).
+    tipo pode ser 'NFe' ou 'CTe'.
+    Retorna (None, 'desconhecido') se não encontrar.
+    """
     try:
-        conteudo = xml_bytes.decode("utf-8", errors="ignore")
-    except Exception:
-        conteudo = ""
-    return "<cteProc" in conteudo or "<CTe " in conteudo or "<CTe>" in conteudo
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return None, "desconhecido"
+
+    tag = root.tag  # ex: {http://...}nfeProc ou {http://...}cteProc
+
+    # ── CT-e ──────────────────────────────────────────────
+    if "cte" in tag.lower() or "CTe" in tag:
+        # Tenta ler chave do atributo Id da tag CTe
+        for elem in root.iter(f"{{{_NS_CTE}}}CTe"):
+            ch = elem.get("Id", "").replace("CTe", "")
+            if len(ch) == 44:
+                return ch, "CTe"
+        # Fallback: tag chCTe dentro de infProt
+        for elem in root.iter(f"{{{_NS_CTE}}}chCTe"):
+            if elem.text and len(elem.text.strip()) == 44:
+                return elem.text.strip(), "CTe"
+        return None, "CTe"
+
+    # ── NF-e ──────────────────────────────────────────────
+    # Tenta ler chave do atributo Id da tag infNFe
+    for elem in root.iter(f"{{{_NS_NFE}}}infNFe"):
+        ch = elem.get("Id", "").replace("NFe", "")
+        if len(ch) == 44:
+            return ch, "NFe"
+    # Fallback: tag chNFe dentro de infProt
+    for elem in root.iter(f"{{{_NS_NFE}}}chNFe"):
+        if elem.text and len(elem.text.strip()) == 44:
+            return elem.text.strip(), "NFe"
+
+    # ── Sem namespace (alguns XMLs simplificados) ──────────
+    for tag_name in ["infNFe", "infCTe"]:
+        for elem in root.iter(tag_name):
+            ch = elem.get("Id", "").replace("NFe", "").replace("CTe", "")
+            if len(ch) == 44:
+                tipo = "CTe" if "CTe" in tag_name else "NFe"
+                return ch, tipo
+
+    return None, "desconhecido"
+
+
+def indexar_xmls_por_chave(pasta_xmls: Path) -> dict[str, Path]:
+    """
+    Varre todos os XMLs da pasta e retorna:
+    { chave_44_digitos: Path_do_arquivo }
+    """
+    indice: dict[str, Path] = {}
+    for xml_file in pasta_xmls.rglob("*.xml"):
+        try:
+            chave, _ = extrair_chave_xml(xml_file.read_bytes())
+            if chave:
+                indice[chave] = xml_file
+        except Exception:
+            pass
+    return indice
+
+
+def is_cte_bytes(xml_bytes: bytes) -> bool:
+    _, tipo = extrair_chave_xml(xml_bytes)
+    return tipo == "CTe"
 
 
 # ============================================================
-# CSS — TEMA ESCURO FORÇADO (compatível com Windows / tema claro)
+# CSS TEMA ESCURO — FORÇADO (compatível Windows / tema claro)
 # ============================================================
 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-/* ── BASE: força fundo e texto em TUDO ── */
 html, body,
 [data-testid="stAppViewContainer"],
 [data-testid="stAppViewContainer"] > *,
 [data-testid="block-container"],
 .main, .block-container,
-section[data-testid="stSidebar"],
-div, span, p, label, li, td, th, tr {
+section[data-testid="stSidebar"] {
     background-color: #0D1117 !important;
     color: #E6EDF3 !important;
     font-family: 'Inter', sans-serif !important;
 }
 
-/* ── SIDEBAR ── */
-[data-testid="stSidebar"] {
-    background-color: #161B22 !important;
-    border-right: 1px solid #30363D !important;
+/* força texto em elementos nativos que o Windows pinta de branco */
+div, span, p, label, li, td, th, tr, small, strong, em {
+    color: #E6EDF3 !important;
 }
-[data-testid="stSidebar"] * {
+
+[data-testid="stSidebar"], [data-testid="stSidebar"] * {
     background-color: #161B22 !important;
     color: #E6EDF3 !important;
 }
 
-/* ── DATAFRAME / TABELA ── */
-[data-testid="stDataFrame"],
-[data-testid="stDataFrame"] *,
-.stDataFrame,
-.stDataFrame *,
-iframe,
-.dvn-scroller,
-.dvn-scroller *,
-[class*="dataframe"] *,
+/* ── DATAFRAME ── */
+[data-testid="stDataFrame"], [data-testid="stDataFrame"] *,
+.stDataFrame, .stDataFrame *,
 table, table *, thead, tbody, tr, td, th {
     background-color: #161B22 !important;
     color: #E6EDF3 !important;
     border-color: #30363D !important;
 }
 
-/* ── INPUTS, SELECT, TEXTAREA ── */
+/* ── INPUTS ── */
 input, textarea, select,
 [data-testid="stTextInput"] input,
 [data-testid="stTextArea"] textarea,
 [data-testid="stSelectbox"] *,
-[data-testid="stMultiSelect"] *,
-[data-testid="stNumberInput"] input,
-.stSelectbox *, .stMultiSelect * {
+[data-testid="stNumberInput"] input {
     background-color: #1C2128 !important;
     color: #E6EDF3 !important;
     border: 1px solid #30363D !important;
@@ -194,29 +249,21 @@ input, textarea, select,
 }
 
 /* ── RADIO / CHECKBOX ── */
-[data-testid="stRadio"] *,
-[data-testid="stCheckbox"] *,
-.stRadio *, .stCheckbox * {
+[data-testid="stRadio"] *, [data-testid="stCheckbox"] * {
     background-color: transparent !important;
     color: #E6EDF3 !important;
 }
 
-/* ── PROGRESS BAR ── */
+/* ── PROGRESS ── */
+[data-testid="stProgress"] > div {
+    background-color: #30363D !important;
+}
 [data-testid="stProgress"] > div > div {
     background: linear-gradient(90deg,#E8580A,#FF6B1A) !important;
     border-radius: 4px !important;
 }
-[data-testid="stProgress"] > div {
-    background-color: #30363D !important;
-}
 
 /* ── TABS ── */
-[data-testid="stTabs"],
-[data-testid="stTabs"] *,
-.stTabs, .stTabs * {
-    background-color: #0D1117 !important;
-    color: #8B949E !important;
-}
 [data-testid="stTabs"] button {
     color: #8B949E !important;
     background-color: transparent !important;
@@ -226,9 +273,7 @@ input, textarea, select,
     border-bottom: 2px solid #E8580A !important;
     background-color: transparent !important;
 }
-[data-testid="stTabs"] button:hover {
-    color: #E6EDF3 !important;
-}
+[data-testid="stTabs"] button:hover { color: #E6EDF3 !important; }
 
 /* ── BOTÕES ── */
 .stButton > button {
@@ -247,10 +292,7 @@ input, textarea, select,
     transform: translateY(-1px) !important;
     box-shadow: 0 4px 12px rgba(232,88,10,.4) !important;
 }
-.stButton > button * {
-    color: white !important;
-    background: transparent !important;
-}
+.stButton > button * { color: white !important; background: transparent !important; }
 
 /* ── DOWNLOAD BUTTON ── */
 [data-testid="stDownloadButton"] button {
@@ -274,23 +316,14 @@ input, textarea, select,
 }
 
 /* ── ALERTS / EXPANDER ── */
-[data-testid="stAlert"],
-[data-testid="stAlert"] *,
-[data-testid="stExpander"],
-[data-testid="stExpander"] * {
+[data-testid="stAlert"], [data-testid="stAlert"] *,
+[data-testid="stExpander"], [data-testid="stExpander"] * {
     background-color: #161B22 !important;
     color: #E6EDF3 !important;
     border-color: #30363D !important;
 }
 
-/* ── METRIC ── */
-[data-testid="stMetric"],
-[data-testid="stMetric"] * {
-    background-color: transparent !important;
-    color: #E6EDF3 !important;
-}
-
-/* ── MARKDOWN / TEXT ── */
+/* ── MARKDOWN ── */
 [data-testid="stMarkdownContainer"],
 [data-testid="stMarkdownContainer"] *,
 .stMarkdown, .stMarkdown * {
@@ -304,11 +337,10 @@ input, textarea, select,
 ::-webkit-scrollbar-thumb { background: #30363D !important; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #E8580A !important; }
 
-/* ── OCULTAR ELEMENTOS PADRÃO ── */
 #MainMenu, footer, header { visibility: hidden; }
 .block-container { padding-top: 1.5rem !important; }
 
-/* ── COMPONENTES CUSTOMIZADOS ── */
+/* ── COMPONENTES CUSTOM ── */
 .main-header {
     background: linear-gradient(135deg,#161B22,#1C2128) !important;
     border: 1px solid #30363D;
@@ -317,49 +349,35 @@ input, textarea, select,
     padding: 20px 24px;
     margin-bottom: 24px;
 }
-.main-header * { background: transparent !important; }
+.main-header * { background: transparent !important; color: inherit; }
 
 .tr-badge {
     background: linear-gradient(135deg,#E8580A,#C44A08) !important;
     color: white !important;
-    font-size: 10px;
-    font-weight: 700;
-    padding: 3px 8px;
-    border-radius: 4px;
-    letter-spacing: 1px;
+    font-size: 10px; font-weight: 700;
+    padding: 3px 8px; border-radius: 4px; letter-spacing: 1px;
 }
 
 .metric-card {
     background: #161B22 !important;
     border: 1px solid #30363D;
-    border-radius: 8px;
-    padding: 16px 20px;
-    text-align: center;
+    border-radius: 8px; padding: 16px 20px; text-align: center;
     transition: border-color 0.2s;
 }
 .metric-card:hover { border-color: #E8580A; }
-.metric-card .value {
-    font-size: 28px; font-weight: 700;
-    color: #E8580A !important; line-height: 1;
-    background: transparent !important;
-}
-.metric-card .label {
-    font-size: 11px; color: #8B949E !important;
-    margin-top: 6px; text-transform: uppercase;
-    background: transparent !important;
-}
-.metric-card.green  .value { color: #3FB950 !important; }
-.metric-card.red    .value { color: #F85149 !important; }
-.metric-card.yellow .value { color: #D29922 !important; }
-.metric-card.blue   .value { color: #58A6FF !important; }
-.metric-card.orange .value { color: #E8580A !important; }
-.metric-card.purple .value { color: #BC8CFF !important; }
+.metric-card * { background: transparent !important; }
+.metric-card .value { font-size:28px; font-weight:700; color:#E8580A !important; line-height:1; }
+.metric-card .label { font-size:11px; color:#8B949E !important; margin-top:6px; text-transform:uppercase; }
+.metric-card.green  .value { color:#3FB950 !important; }
+.metric-card.red    .value { color:#F85149 !important; }
+.metric-card.yellow .value { color:#D29922 !important; }
+.metric-card.blue   .value { color:#58A6FF !important; }
+.metric-card.purple .value { color:#BC8CFF !important; }
 
 .section-title {
-    color: #E6EDF3 !important;
-    font-size: 14px; font-weight: 600;
-    margin: 24px 0 12px 0; padding-bottom: 8px;
-    border-bottom: 1px solid #30363D;
+    color: #E6EDF3 !important; font-size:14px; font-weight:600;
+    margin:24px 0 12px 0; padding-bottom:8px;
+    border-bottom:1px solid #30363D;
     background: transparent !important;
 }
 
@@ -369,50 +387,23 @@ input, textarea, select,
     border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;
 }
 .conflict-card * { background: transparent !important; }
-.conflict-card .chave {
-    font-family: monospace; font-size: 11px;
-    color: #58A6FF !important; word-break: break-all;
-}
-.conflict-card .titulo {
-    color: #E8580A !important; font-weight: 700;
-    font-size: 13px; margin-bottom: 8px;
-}
+.conflict-card .chave { font-family:monospace; font-size:11px; color:#58A6FF !important; word-break:break-all; }
+.conflict-card .titulo { color:#E8580A !important; font-weight:700; font-size:13px; margin-bottom:8px; }
 
 .status-box {
-    border-radius: 8px; padding: 12px 16px; margin: 8px 0;
-    font-size: 13px; display: flex; align-items: center; gap: 10px;
+    border-radius:8px; padding:12px 16px; margin:8px 0;
+    font-size:13px; display:flex; align-items:center; gap:10px;
 }
 .status-box * { background: transparent !important; }
-.status-success {
-    background: rgba(63,185,80,.15) !important;
-    border: 1px solid rgba(63,185,80,.4);
-    color: #3FB950 !important;
-}
-.status-warning {
-    background: rgba(210,153,34,.15) !important;
-    border: 1px solid rgba(210,153,34,.4);
-    color: #D29922 !important;
-}
-.status-error {
-    background: rgba(248,81,73,.15) !important;
-    border: 1px solid rgba(248,81,73,.4);
-    color: #F85149 !important;
-}
-.status-info {
-    background: rgba(88,166,255,.15) !important;
-    border: 1px solid rgba(88,166,255,.4);
-    color: #58A6FF !important;
-}
-.status-purple {
-    background: rgba(188,140,255,.15) !important;
-    border: 1px solid rgba(188,140,255,.4);
-    color: #BC8CFF !important;
-}
+.status-success { background:rgba(63,185,80,.15)  !important; border:1px solid rgba(63,185,80,.4);  color:#3FB950 !important; }
+.status-warning { background:rgba(210,153,34,.15) !important; border:1px solid rgba(210,153,34,.4); color:#D29922 !important; }
+.status-error   { background:rgba(248,81,73,.15)  !important; border:1px solid rgba(248,81,73,.4);  color:#F85149 !important; }
+.status-info    { background:rgba(88,166,255,.15) !important; border:1px solid rgba(88,166,255,.4); color:#58A6FF !important; }
+.status-purple  { background:rgba(188,140,255,.15)!important; border:1px solid rgba(188,140,255,.4);color:#BC8CFF !important; }
 
 .footer {
-    text-align: center; color: #8B949E !important;
-    font-size: 11px; margin-top: 40px;
-    padding-top: 16px; border-top: 1px solid #21262D;
+    text-align:center; color:#8B949E !important; font-size:11px;
+    margin-top:40px; padding-top:16px; border-top:1px solid #21262D;
     background: transparent !important;
 }
 </style>
@@ -443,16 +434,16 @@ for key, default in {
 st.markdown("""
 <div class="main-header">
   <div style="display:flex;align-items:center;gap:12px;">
-    <div style="font-size:36px;background:transparent!important;">📂</div>
-    <div style="background:transparent!important;">
-      <div style="display:flex;align-items:center;gap:10px;background:transparent!important;">
-        <span style="font-size:22px;font-weight:700;color:#E6EDF3;background:transparent!important;">
+    <div style="font-size:36px;">📂</div>
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:22px;font-weight:700;color:#E6EDF3;">
           Classificador de XML NF-e / CT-e
         </span>
         <span class="tr-badge">FISCAL</span>
       </div>
-      <p style="color:#8B949E;font-size:13px;margin:4px 0 0 0;background:transparent!important;">
-        Classifique XMLs por categoria fiscal · CT-e separado · Gerencie duplicatas · Exporte relatório
+      <p style="color:#8B949E;font-size:13px;margin:4px 0 0 0;">
+        Classifique XMLs por categoria fiscal · Leitura de chave interna · CT-e separado · Exporte relatório
       </p>
     </div>
   </div>
@@ -472,9 +463,8 @@ for i, (col, nome) in enumerate(zip(cols_eta, etapas), 1):
     with col:
         st.markdown(f"""
         <div style="text-align:center;padding:10px;border-radius:8px;
-                    border:2px solid {cor};background:#161B22!important;">
-          <span style="color:{txt};font-weight:{'700' if ativo else '400'};
-                       font-size:13px;background:transparent!important;">
+                    border:2px solid {cor};background:#161B22;">
+          <span style="color:{txt};font-weight:{'700' if ativo else '400'};font-size:13px;">
             {nome}
           </span>
         </div>""", unsafe_allow_html=True)
@@ -671,9 +661,9 @@ elif st.session_state.etapa == 2:
                 for cat in cats_disponiveis:
                     cfops_str = ", ".join(cfops_por_cat.get(cat, []))
                     st.markdown(
-                        f"<span style='color:#3FB950;background:transparent!important;'>✅</span> "
-                        f"`{cat}` <span style='color:#8B949E;font-size:11px;"
-                        f"background:transparent!important;'>(CFOPs: {cfops_str})</span>",
+                        f"<span style='color:#3FB950;'>✅</span> "
+                        f"`{cat}` <span style='color:#8B949E;font-size:11px;'>"
+                        f"(CFOPs: {cfops_str})</span>",
                         unsafe_allow_html=True)
             else:
                 for cat in cats_disponiveis:
@@ -717,10 +707,13 @@ elif st.session_state.etapa == 3:
             tmp.mkdir(exist_ok=True)
             pasta_xmls = tmp / "xmls"
             pasta_xmls.mkdir(exist_ok=True)
+            pasta_out  = tmp / "output"
+            pasta_out.mkdir(exist_ok=True)
 
+            # ── 1. Salvar arquivos ──────────────────────────
             info.markdown('<div class="status-box status-info">⏳ Salvando arquivos...</div>',
                           unsafe_allow_html=True)
-            prog.progress(15)
+            prog.progress(10)
 
             plan_path = tmp / "Classificacao.xlsx"
             plan_path.write_bytes(st.session_state.planilha_bytes)
@@ -734,68 +727,180 @@ elif st.session_state.etapa == 3:
                 for nome, conteudo in st.session_state.xml_bytes.items():
                     (pasta_xmls / nome).write_bytes(conteudo)
 
-            info.markdown('<div class="status-box status-info">⏳ Classificando XMLs...</div>',
+            # ── 2. Indexar XMLs pela chave INTERNA ─────────
+            info.markdown('<div class="status-box status-info">⏳ Indexando XMLs pela chave interna...</div>',
+                          unsafe_allow_html=True)
+            prog.progress(25)
+
+            indice_xml = indexar_xmls_por_chave(pasta_xmls)
+            # { "44digitos": Path }
+
+            # ── 3. Ler planilha ─────────────────────────────
+            info.markdown('<div class="status-box status-info">⏳ Cruzando planilha com XMLs...</div>',
                           unsafe_allow_html=True)
             prog.progress(40)
 
-            pasta_out = tmp / "output"
-            resultado = classificar_xmls(
-                caminho_planilha    = str(plan_path),
-                caminho_xmls_ou_zip = str(pasta_xmls),
-                pasta_output        = str(pasta_out),
-                decisoes_usuario    = st.session_state.decisoes
-            )
+            df_plan = pd.read_excel(
+                io.BytesIO(st.session_state.planilha_bytes),
+                sheet_name="Planilha1", dtype=str)
+            df_plan.columns      = ["CFOP", "CHAVE_NFE"]
+            df_plan["CFOP"]      = df_plan["CFOP"].str.strip()
+            df_plan["CHAVE_NFE"] = df_plan["CHAVE_NFE"].str.strip()
+            df_plan["CATEGORIA"] = df_plan["CFOP"].apply(cfop_para_categoria_custom)
 
-            for df_key in ["df_planilha", "df_com_chave", "df_sem_chave",
-                           "df_auto", "df_conflito"]:
-                if df_key in resultado and resultado[df_key] is not None:
-                    resultado[df_key] = aplicar_categoria_custom(resultado[df_key])
+            df_com = df_plan[df_plan["CHAVE_NFE"].notna() &
+                             (df_plan["CHAVE_NFE"] != "nan") &
+                             (df_plan["CHAVE_NFE"] != "")].copy()
+            df_sem = df_plan[~df_plan.index.isin(df_com.index)].copy()
 
-            resultado = override_listas(resultado)
-
-            prog.progress(60)
-            info.markdown('<div class="status-box status-info">⏳ Separando CT-e...</div>',
+            # ── 4. Cruzar chaves e copiar XMLs ──────────────
+            info.markdown('<div class="status-box status-info">⏳ Classificando e copiando XMLs...</div>',
                           unsafe_allow_html=True)
+            prog.progress(55)
 
+            encontrados      = []
+            nao_encontrados  = []
             ctes_encontrados = []
+
+            # Pastas por categoria
+            pastas_cat: dict[str, Path] = {}
+            for cat in CATEGORIAS_CUSTOM:
+                p = pasta_out / cat
+                p.mkdir(exist_ok=True)
+                pastas_cat[cat] = p
             pasta_cte = pasta_out / "CTE"
             pasta_cte.mkdir(exist_ok=True)
 
-            for xml_file in pasta_xmls.rglob("*.xml"):
-                conteudo = xml_file.read_bytes()
-                if is_cte(conteudo):
-                    (pasta_cte / xml_file.name).write_bytes(conteudo)
+            # Aplica decisões de conflito
+            decisoes = st.session_state.decisoes  # {chave: [cats]}
+
+            # Agrupa por chave para tratar conflitos
+            grupos = df_com.groupby("CHAVE_NFE")
+
+            for chave, grp in grupos:
+                xml_path = indice_xml.get(chave)
+
+                if xml_path is None:
+                    # Não encontrado
+                    for _, row in grp.iterrows():
+                        nao_encontrados.append({
+                            "CHAVE_NFE": chave,
+                            "CFOP":      row["CFOP"],
+                            "CATEGORIA": row["CATEGORIA"],
+                            "ARQUIVO":   "NÃO ENCONTRADO",
+                        })
+                    continue
+
+                xml_bytes_local = xml_path.read_bytes()
+
+                # Detecta se é CT-e pela leitura interna
+                _, tipo = extrair_chave_xml(xml_bytes_local)
+                if tipo == "CTe":
+                    destino = pasta_cte / xml_path.name
+                    destino.write_bytes(xml_bytes_local)
                     ctes_encontrados.append({
-                        "ARQUIVO":   xml_file.name,
-                        "CATEGORIA": "CTE"
+                        "ARQUIVO":   xml_path.name,
+                        "CHAVE":     chave,
+                        "CATEGORIA": "CTE",
+                    })
+                    continue
+
+                # NF-e: determina categorias destino
+                cats_grp = grp["CATEGORIA"].unique().tolist()
+
+                if len(cats_grp) == 1:
+                    # Sem conflito
+                    cats_destino = cats_grp
+                else:
+                    # Conflito — usa decisão do usuário ou copia para todas
+                    cats_destino = decisoes.get(chave, cats_grp)
+
+                for cat in cats_destino:
+                    destino = pastas_cat.get(cat, pasta_out / "OUTROS")
+                    destino.mkdir(exist_ok=True)
+                    (destino / xml_path.name).write_bytes(xml_bytes_local)
+
+                for _, row in grp.iterrows():
+                    encontrados.append({
+                        "CHAVE_NFE": chave,
+                        "CFOP":      row["CFOP"],
+                        "CATEGORIA": row["CATEGORIA"],
+                        "ARQUIVO":   xml_path.name,
                     })
 
-            resultado["ctes_encontrados"] = ctes_encontrados
+            # ── 5. XMLs que são CT-e mas não estão na planilha ─
+            # (CT-e avulsos no ZIP)
+            for xml_file in pasta_xmls.rglob("*.xml"):
+                xml_bytes_local = xml_file.read_bytes()
+                chave_interna, tipo = extrair_chave_xml(xml_bytes_local)
+                if tipo == "CTe" and chave_interna not in {c["CHAVE"] for c in ctes_encontrados}:
+                    destino = pasta_cte / xml_file.name
+                    destino.write_bytes(xml_bytes_local)
+                    ctes_encontrados.append({
+                        "ARQUIVO":   xml_file.name,
+                        "CHAVE":     chave_interna or "desconhecida",
+                        "CATEGORIA": "CTE",
+                    })
 
             prog.progress(75)
-            info.markdown('<div class="status-box status-info">⏳ Gerando ZIPs...</div>',
+            info.markdown('<div class="status-box status-info">⏳ Gerando ZIPs por categoria...</div>',
                           unsafe_allow_html=True)
 
+            # ── 6. ZIP MASTER ───────────────────────────────
             zip_master_buf = io.BytesIO()
             with zipfile.ZipFile(zip_master_buf, "w", zipfile.ZIP_DEFLATED) as zf_master:
-                if "zips_por_categoria" in resultado:
-                    for cat, zip_cat_path in resultado["zips_por_categoria"].items():
-                        zf_master.write(zip_cat_path, f"{cat}.zip")
-                else:
-                    with open(resultado["zip"], "rb") as f_zip:
-                        zf_master.writestr("Classificados.zip", f_zip.read())
 
-                if ctes_encontrados:
+                # Um ZIP por categoria NF-e
+                for cat, pasta_cat in pastas_cat.items():
+                    xmls_cat = list(pasta_cat.glob("*.xml"))
+                    if xmls_cat:
+                        cat_buf = io.BytesIO()
+                        with zipfile.ZipFile(cat_buf, "w", zipfile.ZIP_DEFLATED) as zf_cat:
+                            for xf in xmls_cat:
+                                zf_cat.write(xf, xf.name)
+                        zf_master.writestr(f"{cat}.zip", cat_buf.getvalue())
+
+                # ZIP CT-e
+                xmls_cte = list(pasta_cte.glob("*.xml"))
+                if xmls_cte:
                     cte_buf = io.BytesIO()
                     with zipfile.ZipFile(cte_buf, "w", zipfile.ZIP_DEFLATED) as zf_cte:
-                        for xml_file in pasta_cte.glob("*.xml"):
-                            zf_cte.write(xml_file, xml_file.name)
+                        for xf in xmls_cte:
+                            zf_cte.write(xf, xf.name)
                     zf_master.writestr("CTE.zip", cte_buf.getvalue())
 
-            resultado["zip_bytes"] = zip_master_buf.getvalue()
+            zip_bytes = zip_master_buf.getvalue()
 
-            with open(resultado["relatorio"], "rb") as f:
-                resultado["rel_bytes"] = f.read()
+            # ── 7. Relatório Excel ──────────────────────────
+            prog.progress(88)
+            info.markdown('<div class="status-box status-info">⏳ Gerando relatório...</div>',
+                          unsafe_allow_html=True)
+
+            rel_buf = io.BytesIO()
+            with pd.ExcelWriter(rel_buf, engine="openpyxl") as writer:
+                df_plan.to_excel(writer, sheet_name="Planilha Completa", index=False)
+                df_com.to_excel(writer,  sheet_name="Com Chave",         index=False)
+                df_sem.to_excel(writer,  sheet_name="Sem Chave",         index=False)
+                if encontrados:
+                    pd.DataFrame(encontrados).to_excel(writer, sheet_name="Encontrados",     index=False)
+                if nao_encontrados:
+                    pd.DataFrame(nao_encontrados).to_excel(writer, sheet_name="Não Encontrados", index=False)
+                if ctes_encontrados:
+                    pd.DataFrame(ctes_encontrados).to_excel(writer, sheet_name="CT-e",          index=False)
+            rel_bytes = rel_buf.getvalue()
+
+            # ── 8. Montar resultado ─────────────────────────
+            resultado = {
+                "df_planilha":    df_plan,
+                "df_com_chave":   df_com,
+                "df_sem_chave":   df_sem,
+                "encontrados":    encontrados,
+                "nao_encontrados":nao_encontrados,
+                "ctes_encontrados":ctes_encontrados,
+                "zip_bytes":      zip_bytes,
+                "rel_bytes":      rel_bytes,
+                "indice_xml":     indice_xml,
+            }
 
             prog.progress(100)
             info.markdown('<div class="status-box status-success">✅ Concluído!</div>',
@@ -845,11 +950,10 @@ elif st.session_state.etapa == 3:
     tabs = st.tabs([
         "📊 Resumo por Categoria",
         "🚛 CT-e Separados",
-        "⚠️ Duplicatas Auto",
-        "🔀 Conflitos Resolvidos",
         "✅ Encontrados",
         "❌ Não Encontrados",
-        "🔍 Sem Chave"
+        "🔍 Sem Chave",
+        "🗂️ Índice XMLs",
     ])
 
     with tabs[0]:
@@ -880,74 +984,50 @@ elif st.session_state.etapa == 3:
     with tabs[1]:
         if not ctes:
             st.markdown('<div class="status-box status-info">'
-                        '🚛 Nenhum CT-e encontrado nos arquivos enviados.</div>',
-                        unsafe_allow_html=True)
+                        '🚛 Nenhum CT-e encontrado.</div>', unsafe_allow_html=True)
         else:
             st.markdown(f'<div class="status-box status-purple">'
-                        f'🚛 <strong>{len(ctes)}</strong> CT-e(s) identificados e '
-                        f'separados em <code>CTE.zip</code> dentro do arquivo final.</div>',
+                        f'🚛 <strong>{len(ctes)}</strong> CT-e(s) identificados pela '
+                        f'chave interna e separados em <code>CTE.zip</code>.</div>',
                         unsafe_allow_html=True)
             df_tab(pd.DataFrame(ctes))
 
     with tabs[2]:
-        df_auto  = resultado["df_auto"]
-        dup_auto = df_auto[df_auto.duplicated("CHAVE_NFE", keep=False)]
-        if dup_auto.empty:
-            st.markdown('<div class="status-box status-success">'
-                        '✅ Nenhuma duplicata automática.</div>',
-                        unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div class="status-box status-warning">'
-                        f'⚠️ {len(dup_auto["CHAVE_NFE"].unique())} chave(s) com '
-                        f'duplicata no mesmo grupo (copiadas 1x automaticamente).</div>',
-                        unsafe_allow_html=True)
-            df_tab(dup_auto[["CHAVE_NFE", "CFOP", "CATEGORIA"]])
-
-    with tabs[3]:
-        if not st.session_state.decisoes:
-            st.markdown('<div class="status-box status-success">'
-                        '✅ Nenhum conflito encontrado.</div>',
-                        unsafe_allow_html=True)
-        else:
-            rows_conf = []
-            for chave, cats_ok in st.session_state.decisoes.items():
-                df_c = resultado["df_conflito"]
-                grp  = df_c[df_c["CHAVE_NFE"] == chave]
-                for _, row in grp.drop_duplicates(["CHAVE_NFE", "CATEGORIA"]).iterrows():
-                    rows_conf.append({
-                        "CHAVE_NFE": chave,
-                        "CFOP":      row["CFOP"],
-                        "CATEGORIA": row["CATEGORIA"],
-                        "DECISÃO":   "✅ COPIADO" if row["CATEGORIA"] in cats_ok
-                                     else "❌ IGNORADO"
-                    })
-            df_tab(pd.DataFrame(rows_conf))
-
-    with tabs[4]:
         if not enc:
             st.markdown('<div class="status-box status-warning">'
                         '⚠️ Nenhum XML encontrado.</div>', unsafe_allow_html=True)
         else:
             df_tab(pd.DataFrame(enc))
 
-    with tabs[5]:
+    with tabs[3]:
         if not nao:
             st.markdown('<div class="status-box status-success">'
                         '✅ Todos encontrados!</div>', unsafe_allow_html=True)
         else:
             st.markdown(f'<div class="status-box status-error">'
-                        f'❌ {len(nao)} chave(s) sem XML correspondente.</div>',
+                        f'❌ {len(nao)} chave(s) da planilha sem XML correspondente.</div>',
                         unsafe_allow_html=True)
             df_tab(pd.DataFrame(nao))
 
-    with tabs[6]:
+    with tabs[4]:
         resumo_sem = (df_sem.groupby(["CFOP", "CATEGORIA"])
                       .size().reset_index(name="QUANTIDADE")
                       .sort_values("QUANTIDADE", ascending=False))
         st.markdown(f'<div class="status-box status-warning">'
-                    f'🔍 {len(df_sem)} registros sem CHAVE_NFE.</div>',
+                    f'🔍 {len(df_sem)} registros sem CHAVE_NFE na planilha.</div>',
                     unsafe_allow_html=True)
         df_tab(resumo_sem)
+
+    with tabs[5]:
+        indice = resultado.get("indice_xml", {})
+        st.markdown(f'<div class="status-box status-info">'
+                    f'🗂️ <strong>{len(indice)}</strong> XMLs indexados pela chave interna.</div>',
+                    unsafe_allow_html=True)
+        if indice:
+            df_idx = pd.DataFrame([
+                {"CHAVE": k, "ARQUIVO": v.name} for k, v in indice.items()
+            ])
+            df_tab(df_idx)
 
     # ── Downloads ───────────────────────────────────────────
     st.markdown('<div class="section-title">⬇️ Downloads</div>', unsafe_allow_html=True)
