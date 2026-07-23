@@ -65,11 +65,11 @@ html, body, [data-testid="stAppViewContainer"] {
 .metric-card:hover { border-color:#E8580A; }
 .metric-card .value { font-size:28px; font-weight:700; color:#E8580A; line-height:1; }
 .metric-card .label { font-size:11px; color:#8B949E; margin-top:6px; text-transform:uppercase; }
-.metric-card.green .value { color:#3FB950; }
-.metric-card.red   .value { color:#F85149; }
-.metric-card.yellow .value{ color:#D29922; }
-.metric-card.blue  .value { color:#58A6FF; }
-.metric-card.orange .value{ color:#E8580A; }
+.metric-card.green  .value { color:#3FB950; }
+.metric-card.red    .value { color:#F85149; }
+.metric-card.yellow .value { color:#D29922; }
+.metric-card.blue   .value { color:#58A6FF; }
+.metric-card.orange .value { color:#E8580A; }
 
 .section-title {
     color:#E6EDF3; font-size:14px; font-weight:600;
@@ -91,7 +91,7 @@ html, body, [data-testid="stAppViewContainer"] {
     border-radius:8px; padding:12px 16px; margin:8px 0;
     font-size:13px; display:flex; align-items:center; gap:10px;
 }
-.status-success { background:rgba(63,185,80,.1); border:1px solid rgba(63,185,80,.3); color:#3FB950; }
+.status-success { background:rgba(63,185,80,.1);  border:1px solid rgba(63,185,80,.3);  color:#3FB950; }
 .status-warning { background:rgba(210,153,34,.1); border:1px solid rgba(210,153,34,.3); color:#D29922; }
 .status-error   { background:rgba(248,81,73,.1);  border:1px solid rgba(248,81,73,.3);  color:#F85149; }
 .status-info    { background:rgba(88,166,255,.1); border:1px solid rgba(88,166,255,.3); color:#58A6FF; }
@@ -123,8 +123,10 @@ html, body, [data-testid="stAppViewContainer"] {
 ::-webkit-scrollbar-thumb:hover { background:#E8580A; }
 #MainMenu, footer, header { visibility:hidden; }
 .block-container { padding-top:1.5rem !important; }
-.footer { text-align:center; color:#30363D; font-size:11px;
-          margin-top:40px; padding-top:16px; border-top:1px solid #21262D; }
+.footer {
+    text-align:center; color:#30363D; font-size:11px;
+    margin-top:40px; padding-top:16px; border-top:1px solid #21262D;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -133,15 +135,15 @@ html, body, [data-testid="stAppViewContainer"] {
 # ============================================================
 
 for key, default in {
-    "etapa":           1,
-    "planilha_bytes":  None,
-    "xml_bytes":       None,
-    "xml_tipo":        None,
-    "xml_nomes":       [],
-    "dict_conflito":   {},
-    "decisoes":        {},
-    "resultado":       None,
-    "df_preview":      None,
+    "etapa":          1,
+    "planilha_bytes": None,
+    "xml_bytes":      None,
+    "xml_tipo":       None,
+    "xml_nomes":      [],
+    "dict_conflito":  {},
+    "decisoes":       {},
+    "resultado":      None,
+    "df_preview":     None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -202,7 +204,7 @@ if st.session_state.etapa == 1:
         st.markdown('<div class="section-title">📋 Planilha Excel</div>',
                     unsafe_allow_html=True)
         planilha_up = st.file_uploader(
-            "Classificação.xlsx", type=["xlsx","xls"], key="up_plan")
+            "Classificação.xlsx", type=["xlsx", "xls"], key="up_plan")
 
         st.markdown('<div class="section-title">📁 Arquivos XML</div>',
                     unsafe_allow_html=True)
@@ -225,7 +227,7 @@ if st.session_state.etapa == 1:
             try:
                 planilha_up.seek(0)
                 df_prev = pd.read_excel(planilha_up, sheet_name="Planilha1", dtype=str)
-                df_prev.columns = ["CFOP","CHAVE_NFE"]
+                df_prev.columns = ["CFOP", "CHAVE_NFE"]
                 df_prev["CATEGORIA"] = df_prev["CFOP"].apply(cfop_para_categoria)
 
                 total   = len(df_prev)
@@ -233,7 +235,7 @@ if st.session_state.etapa == 1:
                 sem_ch  = df_prev["CHAVE_NFE"].isna().sum()
                 cfops_u = df_prev["CFOP"].nunique()
 
-                c1,c2,c3,c4 = st.columns(4)
+                c1, c2, c3, c4 = st.columns(4)
                 for col_, val, lbl, cls in [
                     (c1, total,   "Registros",    ""),
                     (c2, com_ch,  "Com Chave",    "green"),
@@ -277,11 +279,10 @@ if st.session_state.etapa == 1:
                 st.session_state.xml_bytes = {f.name: f.read() for f in xml_up}
                 st.session_state.xml_nomes = list(st.session_state.xml_bytes.keys())
 
-            # Detectar conflitos antecipadamente
             df_tmp = pd.read_excel(
                 io.BytesIO(st.session_state.planilha_bytes),
                 sheet_name="Planilha1", dtype=str)
-            df_tmp.columns = ["CFOP","CHAVE_NFE"]
+            df_tmp.columns = ["CFOP", "CHAVE_NFE"]
             df_tmp["CFOP"]      = df_tmp["CFOP"].str.strip()
             df_tmp["CHAVE_NFE"] = df_tmp["CHAVE_NFE"].str.strip()
             df_tmp["CATEGORIA"] = df_tmp["CFOP"].apply(cfop_para_categoria)
@@ -342,7 +343,6 @@ elif st.session_state.etapa == 2:
         with col_sel:
             st.markdown("**Selecione o destino:**")
 
-            # Checkbox "Todas"
             todas = st.checkbox(
                 "📁 Copiar para TODAS as categorias",
                 value=True,
@@ -394,8 +394,8 @@ elif st.session_state.etapa == 3:
 
     # ── Processar se ainda não foi feito ───────────────────
     if resultado is None:
-        prog  = st.progress(0)
-        info  = st.empty()
+        prog = st.progress(0)
+        info = st.empty()
 
         try:
             tmp = Path("tmp_class")
@@ -431,12 +431,25 @@ elif st.session_state.etapa == 3:
                 decisoes_usuario    = st.session_state.decisoes
             )
 
-            prog.progress(80)
-            info.markdown('<div class="status-box status-info">⏳ Gerando relatório...</div>',
+            prog.progress(70)
+            info.markdown('<div class="status-box status-info">⏳ Gerando ZIPs por categoria...</div>',
                           unsafe_allow_html=True)
 
-            with open(resultado["zip"], "rb") as f:
-                resultado["zip_bytes"] = f.read()
+            # ── ZIP MASTER: um ZIP por categoria dentro ─────
+            zip_master_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_master_buf, "w", zipfile.ZIP_DEFLATED) as zf_master:
+                if "zips_por_categoria" in resultado:
+                    # classificar_xmls já gerou ZIPs por categoria
+                    for cat, zip_cat_path in resultado["zips_por_categoria"].items():
+                        zf_master.write(zip_cat_path, f"{cat}.zip")
+                else:
+                    # Fallback: empacota o ZIP único gerado
+                    with open(resultado["zip"], "rb") as f_zip:
+                        zf_master.writestr("Classificados.zip", f_zip.read())
+
+            resultado["zip_bytes"] = zip_master_buf.getvalue()
+
+            # ── Relatório Excel ─────────────────────────────
             with open(resultado["relatorio"], "rb") as f:
                 resultado["rel_bytes"] = f.read()
 
@@ -467,7 +480,7 @@ elif st.session_state.etapa == 3:
 
     st.markdown('<div class="section-title">📊 Resultados</div>', unsafe_allow_html=True)
 
-    c1,c2,c3,c4,c5 = st.columns(5)
+    c1, c2, c3, c4, c5 = st.columns(5)
     for col_, val, lbl, cls in [
         (c1, len(df_plan), "Total Registros",  ""),
         (c2, len(df_com),  "Com Chave",        "blue"),
@@ -519,7 +532,7 @@ elif st.session_state.etapa == 3:
         df_tab(pd.DataFrame(rows))
 
     with tabs[1]:
-        df_auto = resultado["df_auto"]
+        df_auto  = resultado["df_auto"]
         dup_auto = df_auto[df_auto.duplicated("CHAVE_NFE", keep=False)]
         if dup_auto.empty:
             st.markdown('<div class="status-box status-success">'
@@ -530,7 +543,7 @@ elif st.session_state.etapa == 3:
                         f'⚠️ {len(dup_auto["CHAVE_NFE"].unique())} chave(s) com '
                         f'duplicata no mesmo grupo (copiadas 1x automaticamente).</div>',
                         unsafe_allow_html=True)
-            df_tab(dup_auto[["CHAVE_NFE","CFOP","CATEGORIA"]])
+            df_tab(dup_auto[["CHAVE_NFE", "CFOP", "CATEGORIA"]])
 
     with tabs[2]:
         if not st.session_state.decisoes:
@@ -542,7 +555,7 @@ elif st.session_state.etapa == 3:
             for chave, cats_ok in st.session_state.decisoes.items():
                 df_c = resultado["df_conflito"]
                 grp  = df_c[df_c["CHAVE_NFE"] == chave]
-                for _, row in grp.drop_duplicates(["CHAVE_NFE","CATEGORIA"]).iterrows():
+                for _, row in grp.drop_duplicates(["CHAVE_NFE", "CATEGORIA"]).iterrows():
                     rows_conf.append({
                         "CHAVE_NFE": chave,
                         "CFOP":      row["CFOP"],
@@ -570,7 +583,7 @@ elif st.session_state.etapa == 3:
             df_tab(pd.DataFrame(nao))
 
     with tabs[5]:
-        resumo_sem = (df_sem.groupby(["CFOP","CATEGORIA"])
+        resumo_sem = (df_sem.groupby(["CFOP", "CATEGORIA"])
                       .size().reset_index(name="QUANTIDADE")
                       .sort_values("QUANTIDADE", ascending=False))
         st.markdown(f'<div class="status-box status-warning">'
@@ -581,11 +594,12 @@ elif st.session_state.etapa == 3:
     # ── Downloads ───────────────────────────────────────────
     st.markdown('<div class="section-title">⬇️ Downloads</div>', unsafe_allow_html=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     cd1, cd2, cd3 = st.columns(3)
 
     with cd1:
         st.download_button(
-            "⬇️ ZIP com XMLs Classificados",
+            "⬇️ Baixar XMLs Classificados",
             data=resultado["zip_bytes"],
             file_name=f"Classificados_{ts}.zip",
             mime="application/zip",
@@ -601,12 +615,12 @@ elif st.session_state.etapa == 3:
         )
     with cd3:
         if st.button("🔄 Nova Classificação", use_container_width=True):
-            for k in ["etapa","planilha_bytes","xml_bytes","xml_tipo",
-                      "xml_nomes","dict_conflito","decisoes","resultado","df_preview"]:
+            for k in ["etapa", "planilha_bytes", "xml_bytes", "xml_tipo",
+                      "xml_nomes", "dict_conflito", "decisoes", "resultado", "df_preview"]:
                 st.session_state[k] = None if k != "etapa" else 1
-                if k in ["dict_conflito","decisoes"]:
+                if k in ["dict_conflito", "decisoes"]:
                     st.session_state[k] = {}
-                if k in ["xml_nomes"]:
+                if k == "xml_nomes":
                     st.session_state[k] = []
             st.rerun()
 
