@@ -32,7 +32,6 @@ st.set_page_config(
 # ============================================================
 
 def _expandir(cfops_raw: list) -> set:
-    """Expande ranges e inteiros para um set de ints."""
     resultado = set()
     for item in cfops_raw:
         if isinstance(item, tuple):
@@ -98,7 +97,6 @@ CATEGORIAS_CUSTOM = {
     ]),
 }
 
-# Índice reverso: cfop_int → categoria
 _CFOP_PARA_CAT: dict[int, str] = {}
 for _cat, _cfops in CATEGORIAS_CUSTOM.items():
     for _c in _cfops:
@@ -106,7 +104,6 @@ for _cat, _cfops in CATEGORIAS_CUSTOM.items():
 
 
 def cfop_para_categoria_custom(cfop_str: str) -> str:
-    """Retorna a categoria do CFOP usando o mapa customizado."""
     try:
         cfop_int = int(str(cfop_str).strip())
     except (ValueError, TypeError):
@@ -127,106 +124,296 @@ def is_cte(xml_bytes: bytes) -> bool:
 
 
 # ============================================================
-# CSS TEMA ESCURO TR / DOMÍNIO
+# CSS — TEMA ESCURO FORÇADO (compatível com Windows / tema claro)
 # ============================================================
 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-html, body, [data-testid="stAppViewContainer"] {
-    background-color: #0D1117;
-    font-family: 'Inter', sans-serif;
-    color: #E6EDF3;
+/* ── BASE: força fundo e texto em TUDO ── */
+html, body,
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > *,
+[data-testid="block-container"],
+.main, .block-container,
+section[data-testid="stSidebar"],
+div, span, p, label, li, td, th, tr {
+    background-color: #0D1117 !important;
+    color: #E6EDF3 !important;
+    font-family: 'Inter', sans-serif !important;
 }
+
+/* ── SIDEBAR ── */
 [data-testid="stSidebar"] {
-    background-color: #161B22;
-    border-right: 1px solid #30363D;
+    background-color: #161B22 !important;
+    border-right: 1px solid #30363D !important;
 }
+[data-testid="stSidebar"] * {
+    background-color: #161B22 !important;
+    color: #E6EDF3 !important;
+}
+
+/* ── DATAFRAME / TABELA ── */
+[data-testid="stDataFrame"],
+[data-testid="stDataFrame"] *,
+.stDataFrame,
+.stDataFrame *,
+iframe,
+.dvn-scroller,
+.dvn-scroller *,
+[class*="dataframe"] *,
+table, table *, thead, tbody, tr, td, th {
+    background-color: #161B22 !important;
+    color: #E6EDF3 !important;
+    border-color: #30363D !important;
+}
+
+/* ── INPUTS, SELECT, TEXTAREA ── */
+input, textarea, select,
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea,
+[data-testid="stSelectbox"] *,
+[data-testid="stMultiSelect"] *,
+[data-testid="stNumberInput"] input,
+.stSelectbox *, .stMultiSelect * {
+    background-color: #1C2128 !important;
+    color: #E6EDF3 !important;
+    border: 1px solid #30363D !important;
+    caret-color: #E6EDF3 !important;
+}
+
+/* ── FILE UPLOADER ── */
+[data-testid="stFileUploader"],
+[data-testid="stFileUploader"] *,
+[data-testid="stFileUploaderDropzone"],
+[data-testid="stFileUploaderDropzone"] * {
+    background-color: #161B22 !important;
+    color: #E6EDF3 !important;
+    border-color: #30363D !important;
+}
+
+/* ── RADIO / CHECKBOX ── */
+[data-testid="stRadio"] *,
+[data-testid="stCheckbox"] *,
+.stRadio *, .stCheckbox * {
+    background-color: transparent !important;
+    color: #E6EDF3 !important;
+}
+
+/* ── PROGRESS BAR ── */
+[data-testid="stProgress"] > div > div {
+    background: linear-gradient(90deg,#E8580A,#FF6B1A) !important;
+    border-radius: 4px !important;
+}
+[data-testid="stProgress"] > div {
+    background-color: #30363D !important;
+}
+
+/* ── TABS ── */
+[data-testid="stTabs"],
+[data-testid="stTabs"] *,
+.stTabs, .stTabs * {
+    background-color: #0D1117 !important;
+    color: #8B949E !important;
+}
+[data-testid="stTabs"] button {
+    color: #8B949E !important;
+    background-color: transparent !important;
+}
+[data-testid="stTabs"] button[aria-selected="true"] {
+    color: #E8580A !important;
+    border-bottom: 2px solid #E8580A !important;
+    background-color: transparent !important;
+}
+[data-testid="stTabs"] button:hover {
+    color: #E6EDF3 !important;
+}
+
+/* ── BOTÕES ── */
+.stButton > button {
+    background: linear-gradient(135deg,#E8580A,#C44A08) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 6px !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    padding: 12px 32px !important;
+    width: 100% !important;
+    transition: all .2s !important;
+}
+.stButton > button:hover {
+    background: linear-gradient(135deg,#FF6B1A,#E8580A) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(232,88,10,.4) !important;
+}
+.stButton > button * {
+    color: white !important;
+    background: transparent !important;
+}
+
+/* ── DOWNLOAD BUTTON ── */
+[data-testid="stDownloadButton"] button {
+    background-color: #1C2128 !important;
+    color: #E6EDF3 !important;
+    border: 1px solid #30363D !important;
+    border-radius: 6px !important;
+    font-weight: 500 !important;
+    width: 100% !important;
+    padding: 12px 16px !important;
+    transition: all .2s !important;
+}
+[data-testid="stDownloadButton"] button:hover {
+    border-color: #E8580A !important;
+    color: #E8580A !important;
+    background-color: rgba(232,88,10,.08) !important;
+}
+[data-testid="stDownloadButton"] button * {
+    color: inherit !important;
+    background: transparent !important;
+}
+
+/* ── ALERTS / EXPANDER ── */
+[data-testid="stAlert"],
+[data-testid="stAlert"] *,
+[data-testid="stExpander"],
+[data-testid="stExpander"] * {
+    background-color: #161B22 !important;
+    color: #E6EDF3 !important;
+    border-color: #30363D !important;
+}
+
+/* ── METRIC ── */
+[data-testid="stMetric"],
+[data-testid="stMetric"] * {
+    background-color: transparent !important;
+    color: #E6EDF3 !important;
+}
+
+/* ── MARKDOWN / TEXT ── */
+[data-testid="stMarkdownContainer"],
+[data-testid="stMarkdownContainer"] *,
+.stMarkdown, .stMarkdown * {
+    background-color: transparent !important;
+    color: #E6EDF3 !important;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0D1117 !important; }
+::-webkit-scrollbar-thumb { background: #30363D !important; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #E8580A !important; }
+
+/* ── OCULTAR ELEMENTOS PADRÃO ── */
+#MainMenu, footer, header { visibility: hidden; }
+.block-container { padding-top: 1.5rem !important; }
+
+/* ── COMPONENTES CUSTOMIZADOS ── */
 .main-header {
-    background: linear-gradient(135deg,#161B22,#1C2128);
+    background: linear-gradient(135deg,#161B22,#1C2128) !important;
     border: 1px solid #30363D;
     border-left: 4px solid #E8580A;
     border-radius: 8px;
     padding: 20px 24px;
     margin-bottom: 24px;
 }
+.main-header * { background: transparent !important; }
+
 .tr-badge {
-    background: linear-gradient(135deg,#E8580A,#C44A08);
-    color: white; font-size:10px; font-weight:700;
-    padding:3px 8px; border-radius:4px; letter-spacing:1px;
+    background: linear-gradient(135deg,#E8580A,#C44A08) !important;
+    color: white !important;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    letter-spacing: 1px;
 }
+
 .metric-card {
-    background:#161B22; border:1px solid #30363D;
-    border-radius:8px; padding:16px 20px; text-align:center;
+    background: #161B22 !important;
+    border: 1px solid #30363D;
+    border-radius: 8px;
+    padding: 16px 20px;
+    text-align: center;
     transition: border-color 0.2s;
 }
-.metric-card:hover { border-color:#E8580A; }
-.metric-card .value { font-size:28px; font-weight:700; color:#E8580A; line-height:1; }
-.metric-card .label { font-size:11px; color:#8B949E; margin-top:6px; text-transform:uppercase; }
-.metric-card.green  .value { color:#3FB950; }
-.metric-card.red    .value { color:#F85149; }
-.metric-card.yellow .value { color:#D29922; }
-.metric-card.blue   .value { color:#58A6FF; }
-.metric-card.orange .value { color:#E8580A; }
-.metric-card.purple .value { color:#BC8CFF; }
+.metric-card:hover { border-color: #E8580A; }
+.metric-card .value {
+    font-size: 28px; font-weight: 700;
+    color: #E8580A !important; line-height: 1;
+    background: transparent !important;
+}
+.metric-card .label {
+    font-size: 11px; color: #8B949E !important;
+    margin-top: 6px; text-transform: uppercase;
+    background: transparent !important;
+}
+.metric-card.green  .value { color: #3FB950 !important; }
+.metric-card.red    .value { color: #F85149 !important; }
+.metric-card.yellow .value { color: #D29922 !important; }
+.metric-card.blue   .value { color: #58A6FF !important; }
+.metric-card.orange .value { color: #E8580A !important; }
+.metric-card.purple .value { color: #BC8CFF !important; }
 
 .section-title {
-    color:#E6EDF3; font-size:14px; font-weight:600;
-    margin:24px 0 12px 0; padding-bottom:8px;
-    border-bottom:1px solid #30363D;
+    color: #E6EDF3 !important;
+    font-size: 14px; font-weight: 600;
+    margin: 24px 0 12px 0; padding-bottom: 8px;
+    border-bottom: 1px solid #30363D;
+    background: transparent !important;
 }
+
 .conflict-card {
-    background:#161B22; border:1px solid #E8580A;
-    border-radius:8px; padding:16px 20px; margin-bottom:16px;
+    background: #161B22 !important;
+    border: 1px solid #E8580A;
+    border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;
 }
+.conflict-card * { background: transparent !important; }
 .conflict-card .chave {
-    font-family:monospace; font-size:11px;
-    color:#58A6FF; word-break:break-all;
+    font-family: monospace; font-size: 11px;
+    color: #58A6FF !important; word-break: break-all;
 }
 .conflict-card .titulo {
-    color:#E8580A; font-weight:700; font-size:13px; margin-bottom:8px;
+    color: #E8580A !important; font-weight: 700;
+    font-size: 13px; margin-bottom: 8px;
 }
-.status-box {
-    border-radius:8px; padding:12px 16px; margin:8px 0;
-    font-size:13px; display:flex; align-items:center; gap:10px;
-}
-.status-success { background:rgba(63,185,80,.1);  border:1px solid rgba(63,185,80,.3);  color:#3FB950; }
-.status-warning { background:rgba(210,153,34,.1); border:1px solid rgba(210,153,34,.3); color:#D29922; }
-.status-error   { background:rgba(248,81,73,.1);  border:1px solid rgba(248,81,73,.3);  color:#F85149; }
-.status-info    { background:rgba(88,166,255,.1); border:1px solid rgba(88,166,255,.3); color:#58A6FF; }
-.status-purple  { background:rgba(188,140,255,.1);border:1px solid rgba(188,140,255,.3);color:#BC8CFF; }
 
-.stButton > button {
-    background:linear-gradient(135deg,#E8580A,#C44A08) !important;
-    color:white !important; border:none !important;
-    border-radius:6px !important; font-weight:600 !important;
-    font-size:14px !important; padding:12px 32px !important;
-    width:100% !important; transition:all .2s !important;
+.status-box {
+    border-radius: 8px; padding: 12px 16px; margin: 8px 0;
+    font-size: 13px; display: flex; align-items: center; gap: 10px;
 }
-.stButton > button:hover {
-    background:linear-gradient(135deg,#FF6B1A,#E8580A) !important;
-    transform:translateY(-1px) !important;
-    box-shadow:0 4px 12px rgba(232,88,10,.4) !important;
+.status-box * { background: transparent !important; }
+.status-success {
+    background: rgba(63,185,80,.15) !important;
+    border: 1px solid rgba(63,185,80,.4);
+    color: #3FB950 !important;
 }
-.stCheckbox label { color:#E6EDF3 !important; font-size:13px !important; }
-[data-testid="stTabs"] button { color:#8B949E !important; }
-[data-testid="stTabs"] button[aria-selected="true"] {
-    color:#E8580A !important; border-bottom:2px solid #E8580A !important;
+.status-warning {
+    background: rgba(210,153,34,.15) !important;
+    border: 1px solid rgba(210,153,34,.4);
+    color: #D29922 !important;
 }
-.stProgress > div > div {
-    background:linear-gradient(90deg,#E8580A,#FF6B1A) !important;
-    border-radius:4px !important;
+.status-error {
+    background: rgba(248,81,73,.15) !important;
+    border: 1px solid rgba(248,81,73,.4);
+    color: #F85149 !important;
 }
-::-webkit-scrollbar { width:6px; height:6px; }
-::-webkit-scrollbar-track { background:#0D1117; }
-::-webkit-scrollbar-thumb { background:#30363D; border-radius:3px; }
-::-webkit-scrollbar-thumb:hover { background:#E8580A; }
-#MainMenu, footer, header { visibility:hidden; }
-.block-container { padding-top:1.5rem !important; }
+.status-info {
+    background: rgba(88,166,255,.15) !important;
+    border: 1px solid rgba(88,166,255,.4);
+    color: #58A6FF !important;
+}
+.status-purple {
+    background: rgba(188,140,255,.15) !important;
+    border: 1px solid rgba(188,140,255,.4);
+    color: #BC8CFF !important;
+}
+
 .footer {
-    text-align:center; color:#30363D; font-size:11px;
-    margin-top:40px; padding-top:16px; border-top:1px solid #21262D;
+    text-align: center; color: #8B949E !important;
+    font-size: 11px; margin-top: 40px;
+    padding-top: 16px; border-top: 1px solid #21262D;
+    background: transparent !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -256,15 +443,15 @@ for key, default in {
 st.markdown("""
 <div class="main-header">
   <div style="display:flex;align-items:center;gap:12px;">
-    <div style="font-size:36px;">📂</div>
-    <div>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <span style="font-size:22px;font-weight:700;color:#E6EDF3;">
+    <div style="font-size:36px;background:transparent!important;">📂</div>
+    <div style="background:transparent!important;">
+      <div style="display:flex;align-items:center;gap:10px;background:transparent!important;">
+        <span style="font-size:22px;font-weight:700;color:#E6EDF3;background:transparent!important;">
           Classificador de XML NF-e / CT-e
         </span>
         <span class="tr-badge">FISCAL</span>
       </div>
-      <p style="color:#8B949E;font-size:13px;margin:4px 0 0 0;">
+      <p style="color:#8B949E;font-size:13px;margin:4px 0 0 0;background:transparent!important;">
         Classifique XMLs por categoria fiscal · CT-e separado · Gerencie duplicatas · Exporte relatório
       </p>
     </div>
@@ -285,8 +472,9 @@ for i, (col, nome) in enumerate(zip(cols_eta, etapas), 1):
     with col:
         st.markdown(f"""
         <div style="text-align:center;padding:10px;border-radius:8px;
-                    border:2px solid {cor};background:#161B22;">
-          <span style="color:{txt};font-weight:{'700' if ativo else '400'};font-size:13px;">
+                    border:2px solid {cor};background:#161B22!important;">
+          <span style="color:{txt};font-weight:{'700' if ativo else '400'};
+                       font-size:13px;background:transparent!important;">
             {nome}
           </span>
         </div>""", unsafe_allow_html=True)
@@ -298,7 +486,6 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ============================================================
 
 def aplicar_categoria_custom(df: pd.DataFrame) -> pd.DataFrame:
-    """Aplica cfop_para_categoria_custom na coluna CATEGORIA do df."""
     if "CFOP" in df.columns:
         df = df.copy()
         df["CATEGORIA"] = df["CFOP"].apply(cfop_para_categoria_custom)
@@ -306,7 +493,6 @@ def aplicar_categoria_custom(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def override_listas(resultado: dict) -> dict:
-    """Reaplica categorias customizadas nas listas encontrados/nao_encontrados."""
     for lista_key in ["encontrados", "nao_encontrados"]:
         nova = []
         for item in resultado.get(lista_key, []):
@@ -394,7 +580,6 @@ if st.session_state.etapa == 1:
                 st.markdown(f'<div class="status-box status-error">❌ {e}</div>',
                             unsafe_allow_html=True)
 
-    # ── Botão Analisar ──────────────────────────────────────
     if btn_analisar:
         if not planilha_up:
             st.markdown('<div class="status-box status-error">❌ Envie a planilha.</div>',
@@ -486,9 +671,9 @@ elif st.session_state.etapa == 2:
                 for cat in cats_disponiveis:
                     cfops_str = ", ".join(cfops_por_cat.get(cat, []))
                     st.markdown(
-                        f"<span style='color:#3FB950;'>✅</span> "
-                        f"`{cat}` <span style='color:#8B949E;font-size:11px;'>"
-                        f"(CFOPs: {cfops_str})</span>",
+                        f"<span style='color:#3FB950;background:transparent!important;'>✅</span> "
+                        f"`{cat}` <span style='color:#8B949E;font-size:11px;"
+                        f"background:transparent!important;'>(CFOPs: {cfops_str})</span>",
                         unsafe_allow_html=True)
             else:
                 for cat in cats_disponiveis:
@@ -523,7 +708,6 @@ elif st.session_state.etapa == 3:
 
     resultado = st.session_state.resultado
 
-    # ── Processar se ainda não foi feito ───────────────────
     if resultado is None:
         prog = st.progress(0)
         info = st.empty()
@@ -562,7 +746,6 @@ elif st.session_state.etapa == 3:
                 decisoes_usuario    = st.session_state.decisoes
             )
 
-            # ── Override categorias em todos os DataFrames ──
             for df_key in ["df_planilha", "df_com_chave", "df_sem_chave",
                            "df_auto", "df_conflito"]:
                 if df_key in resultado and resultado[df_key] is not None:
@@ -570,7 +753,6 @@ elif st.session_state.etapa == 3:
 
             resultado = override_listas(resultado)
 
-            # ── Separar CT-e ────────────────────────────────
             prog.progress(60)
             info.markdown('<div class="status-box status-info">⏳ Separando CT-e...</div>',
                           unsafe_allow_html=True)
@@ -590,14 +772,12 @@ elif st.session_state.etapa == 3:
 
             resultado["ctes_encontrados"] = ctes_encontrados
 
-            # ── ZIP MASTER: um ZIP por categoria + CTE ──────
             prog.progress(75)
             info.markdown('<div class="status-box status-info">⏳ Gerando ZIPs...</div>',
                           unsafe_allow_html=True)
 
             zip_master_buf = io.BytesIO()
             with zipfile.ZipFile(zip_master_buf, "w", zipfile.ZIP_DEFLATED) as zf_master:
-
                 if "zips_por_categoria" in resultado:
                     for cat, zip_cat_path in resultado["zips_por_categoria"].items():
                         zf_master.write(zip_cat_path, f"{cat}.zip")
@@ -614,7 +794,6 @@ elif st.session_state.etapa == 3:
 
             resultado["zip_bytes"] = zip_master_buf.getvalue()
 
-            # ── Relatório Excel ─────────────────────────────
             with open(resultado["relatorio"], "rb") as f:
                 resultado["rel_bytes"] = f.read()
 
@@ -663,7 +842,6 @@ elif st.session_state.etapa == 3:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Tabs ────────────────────────────────────────────────
     tabs = st.tabs([
         "📊 Resumo por Categoria",
         "🚛 CT-e Separados",
@@ -688,7 +866,6 @@ elif st.session_state.etapa == 3:
                 "Não Encontrados": sum(1 for r in nao if r["CATEGORIA"] == cat),
                 "Sem Chave":       int((df_sem["CATEGORIA"] == cat).sum()),
             })
-        # Linha CTE
         rows.append({
             "Categoria":       "CTE",
             "Qtd CFOPs":       "—",
@@ -772,7 +949,7 @@ elif st.session_state.etapa == 3:
                     unsafe_allow_html=True)
         df_tab(resumo_sem)
 
-    # ── Download único ──────────────────────────────────────
+    # ── Downloads ───────────────────────────────────────────
     st.markdown('<div class="section-title">⬇️ Downloads</div>', unsafe_allow_html=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
