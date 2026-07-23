@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+tmp_classificador/
+*.zip
+.env
+.venv/
